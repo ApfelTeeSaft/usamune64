@@ -28,13 +28,14 @@
 #include "object_fields.h"
 #include "object_helpers.h"
 #include "object_list_processor.h"
+#include "../usamune/practice_core.h"
 #include "print.h"
 #include "save_file.h"
 #include "sound_init.h"
 #include "rumble_init.h"
 
 u32 unused80339F10;
-u8 unused80339F1C[20];
+s8 filler80339F1C[20];
 
 /**************************************************
  *                    ANIMATIONS                  *
@@ -79,7 +80,7 @@ s16 set_mario_animation(struct MarioState *m, s32 targetAnimID) {
         if (targetAnim->flags & ANIM_FLAG_2) {
             o->header.gfx.animInfo.animFrame = targetAnim->startFrame;
         } else {
-            if (targetAnim->flags & ANIM_FLAG_BACKWARD) {
+            if (targetAnim->flags & ANIM_FLAG_FORWARD) {
                 o->header.gfx.animInfo.animFrame = targetAnim->startFrame + 1;
             } else {
                 o->header.gfx.animInfo.animFrame = targetAnim->startFrame - 1;
@@ -111,7 +112,7 @@ s16 set_mario_anim_with_accel(struct MarioState *m, s32 targetAnimID, s32 accel)
         if (targetAnim->flags & ANIM_FLAG_2) {
             o->header.gfx.animInfo.animFrameAccelAssist = (targetAnim->startFrame << 0x10);
         } else {
-            if (targetAnim->flags & ANIM_FLAG_BACKWARD) {
+            if (targetAnim->flags & ANIM_FLAG_FORWARD) {
                 o->header.gfx.animInfo.animFrameAccelAssist = (targetAnim->startFrame << 0x10) + accel;
             } else {
                 o->header.gfx.animInfo.animFrameAccelAssist = (targetAnim->startFrame << 0x10) - accel;
@@ -133,14 +134,14 @@ void set_anim_to_frame(struct MarioState *m, s16 animFrame) {
     struct AnimInfo *animInfo = &m->marioObj->header.gfx.animInfo;
     struct Animation *curAnim = animInfo->curAnim;
 
-    if (animInfo->animAccel != 0) {
-        if (curAnim->flags & ANIM_FLAG_BACKWARD) {
+    if (animInfo->animAccel) {
+        if (curAnim->flags & ANIM_FLAG_FORWARD) {
             animInfo->animFrameAccelAssist = (animFrame << 0x10) + animInfo->animAccel;
         } else {
             animInfo->animFrameAccelAssist = (animFrame << 0x10) - animInfo->animAccel;
         }
     } else {
-        if (curAnim->flags & ANIM_FLAG_BACKWARD) {
+        if (curAnim->flags & ANIM_FLAG_FORWARD) {
             animInfo->animFrame = animFrame + 1;
         } else {
             animInfo->animFrame = animFrame - 1;
@@ -154,8 +155,8 @@ s32 is_anim_past_frame(struct MarioState *m, s16 animFrame) {
     struct AnimInfo *animInfo = &m->marioObj->header.gfx.animInfo;
     struct Animation *curAnim = animInfo->curAnim;
 
-    if (animInfo->animAccel != 0) {
-        if (curAnim->flags & ANIM_FLAG_BACKWARD) {
+    if (animInfo->animAccel) {
+        if (curAnim->flags & ANIM_FLAG_FORWARD) {
             isPastFrame =
                 (animInfo->animFrameAccelAssist > acceleratedFrame)
                 && (acceleratedFrame >= (animInfo->animFrameAccelAssist - animInfo->animAccel));
@@ -165,7 +166,7 @@ s32 is_anim_past_frame(struct MarioState *m, s16 animFrame) {
                 && (acceleratedFrame <= (animInfo->animFrameAccelAssist + animInfo->animAccel));
         }
     } else {
-        if (curAnim->flags & ANIM_FLAG_BACKWARD) {
+        if (curAnim->flags & ANIM_FLAG_FORWARD) {
             isPastFrame = (animInfo->animFrame == (animFrame + 1));
         } else {
             isPastFrame = ((animInfo->animFrame + 1) == animFrame);
@@ -545,7 +546,7 @@ struct Surface *resolve_and_return_wall_collisions(Vec3f pos, f32 offset, f32 ra
  * Finds the ceiling from a vec3f horizontally and a height (with 80 vertical buffer).
  */
 f32 vec3f_find_ceil(Vec3f pos, f32 height, struct Surface **ceil) {
-    UNUSED u8 filler[4];
+    UNUSED f32 unused;
 
     return find_ceil(pos[0], height + 80.0f, pos[2], ceil);
 }
@@ -774,7 +775,7 @@ static void set_mario_y_vel_based_on_fspeed(struct MarioState *m, f32 initialVel
  * Transitions for a variety of airborne actions.
  */
 static u32 set_mario_action_airborne(struct MarioState *m, u32 action, u32 actionArg) {
-    f32 forwardVel;
+    f32 fowardVel;
 
     if ((m->squishTimer != 0 || m->quicksandDepth >= 1.0f)
         && (action == ACT_DOUBLE_JUMP || action == ACT_TWIRLING)) {
@@ -854,10 +855,10 @@ static u32 set_mario_action_airborne(struct MarioState *m, u32 action, u32 actio
             break;
 
         case ACT_DIVE:
-            if ((forwardVel = m->forwardVel + 15.0f) > 48.0f) {
-                forwardVel = 48.0f;
+            if ((fowardVel = m->forwardVel + 15.0f) > 48.0f) {
+                fowardVel = 48.0f;
             }
-            mario_set_forward_vel(m, forwardVel);
+            mario_set_forward_vel(m, fowardVel);
             break;
 
         case ACT_LONG_JUMP:
@@ -1277,13 +1278,13 @@ void update_mario_button_inputs(struct MarioState *m) {
     if (m->input & INPUT_A_PRESSED) {
         m->framesSinceA = 0;
     } else if (m->framesSinceA < 0xFF) {
-        m->framesSinceA++;
+        m->framesSinceA += 1;
     }
 
     if (m->input & INPUT_B_PRESSED) {
         m->framesSinceB = 0;
     } else if (m->framesSinceB < 0xFF) {
-        m->framesSinceB++;
+        m->framesSinceB += 1;
     }
 }
 
@@ -1329,7 +1330,7 @@ void update_mario_geometry_inputs(struct MarioState *m) {
         m->floorHeight = find_floor(m->pos[0], m->pos[1], m->pos[2], &m->floor);
     }
 
-    m->ceilHeight = vec3f_find_ceil(m->pos, m->floorHeight, &m->ceil);
+    m->ceilHeight = vec3f_find_ceil(&m->pos[0], m->floorHeight, &m->ceil);
     gasLevel = find_poison_gas_level(m->pos[0], m->pos[2]);
     m->waterLevel = find_water_level(m->pos[0], m->pos[2]);
 
@@ -1393,7 +1394,7 @@ void update_mario_inputs(struct MarioState *m) {
     if (!(m->input & (INPUT_NONZERO_ANALOG | INPUT_A_PRESSED))) {
         m->input |= INPUT_UNKNOWN_5;
     }
-
+    
     // These 3 flags are defined by Bowser stomping attacks
     if (m->marioObj->oInteractStatus
         & (INT_STATUS_MARIO_STUNNED | INT_STATUS_MARIO_KNOCKBACK_DMG | INT_STATUS_MARIO_SHOCKWAVE)) {
@@ -1703,6 +1704,12 @@ s32 execute_mario_action(UNUSED struct Object *o) {
         gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
         mario_reset_bodystate(gMarioState);
         update_mario_inputs(gMarioState);
+        // USAMUNE: Check for freecam mode
+        if (gUsamuneState.config.freecamEnabled) {
+            // Override Mario's position/movement for freecam
+            // This would require implementing freecam movement logic
+            return 0; // Skip normal Mario processing in freecam
+        }
         mario_handle_special_floors(gMarioState);
         mario_process_interactions(gMarioState);
 
